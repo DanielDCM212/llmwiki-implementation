@@ -1,0 +1,1132 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>GraphRAG Architecture — Design Brief</title>
+<link href="https://fonts.googleapis.com/css2?family=Space+Mono:wght@400;700&family=Syne:wght@400;600;700;800&display=swap" rel="stylesheet">
+<style>
+  :root {
+    --bg: #0a0a0f;
+    --surface: #12121a;
+    --surface2: #1a1a26;
+    --accent: #00e5ff;
+    --accent2: #7c3aed;
+    --accent3: #f59e0b;
+    --text: #e8e8f0;
+    --muted: #6b6b8a;
+    --border: #2a2a3e;
+    --green: #10b981;
+    --red: #ef4444;
+  }
+
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+
+  body {
+    background: var(--bg);
+    color: var(--text);
+    font-family: 'Syne', sans-serif;
+    overflow: hidden;
+    height: 100vh;
+    width: 100vw;
+  }
+
+  /* ── SLIDE CONTAINER ── */
+  .deck {
+    width: 100%;
+    height: 100%;
+    position: relative;
+  }
+
+  .slide {
+    position: absolute;
+    inset: 0;
+    padding: 56px 72px;
+    display: flex;
+    flex-direction: column;
+    opacity: 0;
+    pointer-events: none;
+    transition: opacity 0.5s ease, transform 0.5s ease;
+    transform: translateX(40px);
+    overflow: hidden;
+  }
+
+  .slide.active {
+    opacity: 1;
+    pointer-events: all;
+    transform: translateX(0);
+  }
+
+  .slide.out {
+    opacity: 0;
+    transform: translateX(-40px);
+  }
+
+  /* ── BACKGROUND GRID ── */
+  body::before {
+    content: '';
+    position: fixed;
+    inset: 0;
+    background-image:
+      linear-gradient(var(--border) 1px, transparent 1px),
+      linear-gradient(90deg, var(--border) 1px, transparent 1px);
+    background-size: 48px 48px;
+    opacity: 0.3;
+    pointer-events: none;
+    z-index: 0;
+  }
+
+  .slide { z-index: 1; }
+
+  /* ── SLIDE NUMBER ── */
+  .slide-num {
+    position: fixed;
+    bottom: 28px;
+    right: 72px;
+    font-family: 'Space Mono', monospace;
+    font-size: 11px;
+    color: var(--muted);
+    z-index: 10;
+    letter-spacing: 2px;
+  }
+
+  /* ── NAV ── */
+  .nav {
+    position: fixed;
+    bottom: 20px;
+    left: 50%;
+    transform: translateX(-50%);
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    z-index: 10;
+  }
+
+  .nav button {
+    background: var(--surface2);
+    border: 1px solid var(--border);
+    color: var(--text);
+    font-family: 'Space Mono', monospace;
+    font-size: 12px;
+    padding: 8px 20px;
+    cursor: pointer;
+    letter-spacing: 1px;
+    transition: all 0.2s;
+  }
+
+  .nav button:hover {
+    background: var(--accent);
+    color: var(--bg);
+    border-color: var(--accent);
+  }
+
+  .nav .dots {
+    display: flex;
+    gap: 6px;
+    align-items: center;
+  }
+
+  .dot {
+    width: 6px;
+    height: 6px;
+    border-radius: 50%;
+    background: var(--border);
+    transition: all 0.3s;
+    cursor: pointer;
+  }
+
+  .dot.active {
+    background: var(--accent);
+    width: 20px;
+    border-radius: 3px;
+  }
+
+  /* ── TYPOGRAPHY ── */
+  .label {
+    font-family: 'Space Mono', monospace;
+    font-size: 10px;
+    letter-spacing: 3px;
+    text-transform: uppercase;
+    color: var(--accent);
+    margin-bottom: 12px;
+  }
+
+  h1 {
+    font-size: clamp(36px, 5vw, 64px);
+    font-weight: 800;
+    line-height: 1.05;
+    letter-spacing: -1px;
+  }
+
+  h2 {
+    font-size: clamp(24px, 3vw, 40px);
+    font-weight: 700;
+    letter-spacing: -0.5px;
+    line-height: 1.1;
+    margin-bottom: 32px;
+  }
+
+  h3 {
+    font-size: 14px;
+    font-weight: 700;
+    letter-spacing: 1px;
+    text-transform: uppercase;
+    color: var(--accent);
+    margin-bottom: 10px;
+  }
+
+  p {
+    font-size: 15px;
+    line-height: 1.7;
+    color: #b0b0c8;
+  }
+
+  /* ── ACCENT LINE ── */
+  .accent-line {
+    width: 48px;
+    height: 3px;
+    background: var(--accent);
+    margin-bottom: 20px;
+  }
+
+  /* ── TAG / BADGE ── */
+  .tag {
+    display: inline-block;
+    font-family: 'Space Mono', monospace;
+    font-size: 10px;
+    letter-spacing: 1px;
+    padding: 3px 10px;
+    border: 1px solid var(--accent);
+    color: var(--accent);
+    margin-right: 6px;
+    margin-bottom: 4px;
+  }
+
+  .tag.amber { border-color: var(--accent3); color: var(--accent3); }
+  .tag.purple { border-color: #a78bfa; color: #a78bfa; }
+  .tag.green { border-color: var(--green); color: var(--green); }
+  .tag.red { border-color: var(--red); color: var(--red); }
+
+  /* ── CODE BLOCK ── */
+  .code {
+    font-family: 'Space Mono', monospace;
+    font-size: 12px;
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-left: 3px solid var(--accent);
+    padding: 16px 20px;
+    line-height: 1.8;
+    color: #9ca3af;
+    white-space: pre;
+    overflow-x: auto;
+  }
+
+  .code .k { color: var(--accent); }
+  .code .s { color: var(--accent3); }
+  .code .c { color: var(--muted); }
+  .code .n { color: #a78bfa; }
+  .code .v { color: var(--green); }
+
+  /* ── GRID LAYOUTS ── */
+  .grid-2 { display: grid; grid-template-columns: 1fr 1fr; gap: 24px; }
+  .grid-3 { display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 20px; }
+  .grid-4 { display: grid; grid-template-columns: 1fr 1fr 1fr 1fr; gap: 16px; }
+
+  /* ── CARD ── */
+  .card {
+    background: var(--surface);
+    border: 1px solid var(--border);
+    padding: 20px;
+    position: relative;
+    overflow: hidden;
+  }
+
+  .card::before {
+    content: '';
+    position: absolute;
+    top: 0; left: 0; right: 0;
+    height: 2px;
+    background: var(--accent);
+  }
+
+  .card.amber::before { background: var(--accent3); }
+  .card.purple::before { background: #7c3aed; }
+  .card.green::before { background: var(--green); }
+
+  .card h4 {
+    font-size: 13px;
+    font-weight: 700;
+    letter-spacing: 0.5px;
+    margin-bottom: 8px;
+    color: var(--text);
+  }
+
+  .card p { font-size: 13px; }
+
+  /* ── TABLE ── */
+  .tbl {
+    width: 100%;
+    border-collapse: collapse;
+    font-size: 13px;
+  }
+
+  .tbl th {
+    font-family: 'Space Mono', monospace;
+    font-size: 10px;
+    letter-spacing: 2px;
+    text-transform: uppercase;
+    color: var(--accent);
+    padding: 10px 14px;
+    border-bottom: 1px solid var(--border);
+    text-align: left;
+    background: var(--surface);
+  }
+
+  .tbl td {
+    padding: 10px 14px;
+    border-bottom: 1px solid var(--border);
+    color: #b0b0c8;
+    vertical-align: top;
+  }
+
+  .tbl tr:last-child td { border-bottom: none; }
+  .tbl tr:hover td { background: rgba(0,229,255,0.03); }
+
+  /* ── FLOW DIAGRAM ── */
+  .flow {
+    display: flex;
+    align-items: stretch;
+    gap: 0;
+    flex-wrap: nowrap;
+    overflow-x: auto;
+  }
+
+  .flow-step {
+    flex: 1;
+    min-width: 120px;
+    background: var(--surface);
+    border: 1px solid var(--border);
+    padding: 16px 14px;
+    position: relative;
+    text-align: center;
+  }
+
+  .flow-step::after {
+    content: '▶';
+    position: absolute;
+    right: -14px;
+    top: 50%;
+    transform: translateY(-50%);
+    color: var(--accent);
+    font-size: 12px;
+    z-index: 2;
+  }
+
+  .flow-step:last-child::after { display: none; }
+
+  .flow-step .step-num {
+    font-family: 'Space Mono', monospace;
+    font-size: 9px;
+    color: var(--muted);
+    letter-spacing: 1px;
+    margin-bottom: 6px;
+  }
+
+  .flow-step .step-title {
+    font-size: 12px;
+    font-weight: 700;
+    color: var(--text);
+    margin-bottom: 4px;
+  }
+
+  .flow-step .step-sub {
+    font-size: 10px;
+    color: var(--muted);
+    line-height: 1.4;
+  }
+
+  .flow-step.highlight {
+    border-color: var(--accent);
+    background: rgba(0,229,255,0.05);
+  }
+
+  /* ── RELATIONSHIP NODE ── */
+  .rel-row {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    margin-bottom: 10px;
+    font-family: 'Space Mono', monospace;
+    font-size: 12px;
+  }
+
+  .node-box {
+    background: var(--surface2);
+    border: 1px solid var(--border);
+    padding: 4px 12px;
+    color: var(--text);
+    font-size: 12px;
+    white-space: nowrap;
+  }
+
+  .node-box.app { border-color: var(--green); color: var(--green); }
+  .node-box.file { border-color: var(--accent3); color: var(--accent3); }
+  .node-box.row { border-color: #a78bfa; color: #a78bfa; }
+  .node-box.page { border-color: var(--accent); color: var(--accent); }
+
+  .rel-arrow {
+    color: var(--muted);
+    display: flex;
+    align-items: center;
+    gap: 4px;
+    font-size: 10px;
+    white-space: nowrap;
+  }
+
+  .rel-label {
+    font-size: 9px;
+    letter-spacing: 1px;
+    color: var(--muted);
+    background: var(--surface);
+    border: 1px solid var(--border);
+    padding: 2px 6px;
+  }
+
+  /* ── HERO SLIDE ── */
+  #slide-1 {
+    justify-content: center;
+  }
+
+  .hero-eyebrow {
+    font-family: 'Space Mono', monospace;
+    font-size: 11px;
+    letter-spacing: 4px;
+    text-transform: uppercase;
+    color: var(--accent);
+    margin-bottom: 24px;
+  }
+
+  .hero-title {
+    font-size: clamp(48px, 7vw, 88px);
+    font-weight: 800;
+    line-height: 0.95;
+    letter-spacing: -3px;
+    margin-bottom: 8px;
+  }
+
+  .hero-title span { color: var(--accent); }
+
+  .hero-sub {
+    font-size: 16px;
+    color: var(--muted);
+    margin-top: 24px;
+    max-width: 500px;
+    line-height: 1.6;
+  }
+
+  .hero-meta {
+    margin-top: 48px;
+    display: flex;
+    gap: 32px;
+    font-family: 'Space Mono', monospace;
+    font-size: 11px;
+    color: var(--muted);
+  }
+
+  .hero-meta span { color: var(--accent); }
+
+  /* ── DECORATIVE CORNER ── */
+  .corner-deco {
+    position: absolute;
+    top: 40px;
+    right: 60px;
+    width: 200px;
+    height: 200px;
+    border: 1px solid var(--border);
+    opacity: 0.4;
+    transform: rotate(15deg);
+  }
+
+  .corner-deco::after {
+    content: '';
+    position: absolute;
+    inset: 16px;
+    border: 1px solid var(--accent);
+    opacity: 0.5;
+    transform: rotate(-8deg);
+  }
+
+  /* ── CALLOUT ── */
+  .callout {
+    background: rgba(0,229,255,0.05);
+    border: 1px solid rgba(0,229,255,0.2);
+    border-left: 3px solid var(--accent);
+    padding: 14px 18px;
+    font-size: 13px;
+    color: #b0b0c8;
+    line-height: 1.6;
+  }
+
+  .callout.amber {
+    background: rgba(245,158,11,0.05);
+    border-color: rgba(245,158,11,0.2);
+    border-left-color: var(--accent3);
+  }
+
+  .callout strong { color: var(--text); }
+
+  /* ── LIST ── */
+  ul.styled {
+    list-style: none;
+    padding: 0;
+  }
+
+  ul.styled li {
+    padding: 8px 0 8px 20px;
+    position: relative;
+    font-size: 14px;
+    color: #b0b0c8;
+    border-bottom: 1px solid var(--border);
+    line-height: 1.5;
+  }
+
+  ul.styled li:last-child { border-bottom: none; }
+
+  ul.styled li::before {
+    content: '▸';
+    position: absolute;
+    left: 0;
+    color: var(--accent);
+    font-size: 12px;
+  }
+
+  ul.styled li strong { color: var(--text); }
+
+  /* ── SECTION HEADING ── */
+  .section-title {
+    display: flex;
+    align-items: baseline;
+    gap: 16px;
+    margin-bottom: 28px;
+  }
+
+  .section-title h2 { margin-bottom: 0; }
+
+  .section-title .num {
+    font-family: 'Space Mono', monospace;
+    font-size: 48px;
+    font-weight: 700;
+    color: var(--border);
+    line-height: 1;
+    letter-spacing: -2px;
+  }
+
+  /* ── SCROLLABLE INNER ── */
+  .scroll-inner {
+    overflow-y: auto;
+    flex: 1;
+    padding-right: 4px;
+  }
+
+  .scroll-inner::-webkit-scrollbar { width: 3px; }
+  .scroll-inner::-webkit-scrollbar-track { background: transparent; }
+  .scroll-inner::-webkit-scrollbar-thumb { background: var(--border); }
+
+</style>
+</head>
+<body>
+
+<div class="deck" id="deck">
+
+  <!-- ── SLIDE 1: TITLE ── -->
+  <div class="slide active" id="slide-1">
+    <div class="corner-deco"></div>
+    <div style="flex:1; display:flex; flex-direction:column; justify-content:center;">
+      <div class="hero-eyebrow">Architecture Design Brief</div>
+      <div class="hero-title">Graph<span>RAG</span><br>Architecture</div>
+      <div style="width:80px; height:3px; background:var(--accent); margin: 20px 0;"></div>
+      <div class="hero-sub">
+        Designing a knowledge graph for application impact tracking across HTML pages, structured tables, and multi-format attached files — powered by MongoDB and Google ADK.
+      </div>
+      <div class="hero-meta">
+        <div>Sectors <span>Fixed taxonomy</span></div>
+        <div>Store <span>MongoDB Atlas</span></div>
+        <div>Agent <span>Google ADK</span></div>
+        <div>Pages <span>2021 → Current</span></div>
+      </div>
+    </div>
+  </div>
+
+  <!-- ── SLIDE 2: PROBLEM SPACE ── -->
+  <div class="slide" id="slide-2">
+    <div class="label">01 — Context</div>
+    <div class="section-title">
+      <div class="num">01</div>
+      <h2>Problem Space</h2>
+    </div>
+    <div class="grid-2" style="flex:1; gap:32px;">
+      <div>
+        <h3>Data Sources</h3>
+        <ul class="styled">
+          <li><strong>HTML Pages</strong> — paragraphs, tables, file links per page</li>
+          <li><strong>Excel files</strong> — AppID lists in cells across sheets</li>
+          <li><strong>PDF files</strong> — text blocks and embedded tables</li>
+          <li><strong>PPT / PPTX</strong> — slide text, tables, speaker notes</li>
+          <li><strong>Images</strong> — OCR-extracted content</li>
+        </ul>
+        <div style="margin-top:20px;">
+          <h3>File Layout</h3>
+          <div class="code"><span class="k">output/</span>{sector}<span class="k">/pages/</span>{pageId}<span class="k">/page.html</span>
+<span class="k">output/</span>{sector}<span class="k">/pages/</span>{pageId}<span class="k">/files/</span>{filename}</div>
+        </div>
+      </div>
+      <div>
+        <h3>Core Relationships to Model</h3>
+        <div style="margin-bottom:16px;">
+          <div class="rel-row">
+            <div class="node-box page">PageID</div>
+            <div class="rel-arrow">──── <div class="rel-label">HAS_TABLE</div> ────▶</div>
+            <div class="node-box row">Table / Row</div>
+          </div>
+          <div class="rel-row">
+            <div class="node-box row">Row</div>
+            <div class="rel-arrow">── <div class="rel-label">REFERENCES_FILE</div> ──▶</div>
+            <div class="node-box file">File</div>
+          </div>
+          <div class="rel-row">
+            <div class="node-box file">File</div>
+            <div class="rel-arrow">──── <div class="rel-label">LISTS_APP</div> ────▶</div>
+            <div class="node-box app">AppID</div>
+          </div>
+        </div>
+        <div class="callout">
+          <strong>Key insight:</strong> AppIDs only enter the graph through File parsing. The File node is the trust boundary between HTML structure and application data.
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- ── SLIDE 3: ROW TYPE NORMALIZATION ── -->
+  <div class="slide" id="slide-3">
+    <div class="label">02 — Normalization</div>
+    <div class="section-title">
+      <div class="num">02</div>
+      <h2>RowType Normalization</h2>
+    </div>
+    <div class="grid-2" style="flex:1;">
+      <div>
+        <h3>The Problem</h3>
+        <p style="margin-bottom:16px;">Raw RowType values are dirty variants of the same canonical type. Must be normalized before graph insertion.</p>
+        <table class="tbl">
+          <thead><tr><th>Raw Value</th><th>Canonical</th></tr></thead>
+          <tbody>
+            <tr><td>Design Type</td><td><span class="tag green">DESIGN_TYPE</span></td></tr>
+            <tr><td>Design Types</td><td><span class="tag green">DESIGN_TYPE</span></td></tr>
+            <tr><td>Design Type NAM.XX.01</td><td><span class="tag green">DESIGN_TYPE</span> <span class="tag amber">suffix preserved</span></td></tr>
+          </tbody>
+        </table>
+        <div style="margin-top:16px;" class="callout amber">
+          <strong>Suffix like NAM.XX.01</strong> may carry regional or version meaning — store raw value alongside canonical, never discard it.
+        </div>
+      </div>
+      <div>
+        <h3>Two-Pass Strategy</h3>
+        <div class="flow" style="flex-direction:column; gap:12px;">
+          <div class="card">
+            <h4>Pass 1 — Collect</h4>
+            <p>Scan all pages in the sector. Collect every unique raw RowType string into a candidate set.</p>
+          </div>
+          <div class="card amber">
+            <h4>Pass 2 — Cluster + Canonicalize</h4>
+            <p>Fuzzy string similarity via <code style="color:var(--accent3)">rapidfuzz</code> to group variants. LLM assigns canonical name per cluster.</p>
+          </div>
+          <div class="card green">
+            <h4>Registry — Persist</h4>
+            <p>Store canonical types in <code style="color:var(--green)">rowtypes</code> collection with all known raw variants. Re-run when new types appear.</p>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- ── SLIDE 4: APPID DETECTION ── -->
+  <div class="slide" id="slide-4">
+    <div class="label">03 — AppID Extraction</div>
+    <div class="section-title">
+      <div class="num">03</div>
+      <h2>AppID Detection Strategy</h2>
+    </div>
+    <div class="grid-2" style="flex:1; gap:32px;">
+      <div>
+        <h3>Key Constraints</h3>
+        <ul class="styled">
+          <li><strong>Source of truth is the File</strong> — AppIDs never sourced from HTML directly</li>
+          <li><strong>AppID is clean</strong> but not explicitly labeled in files</li>
+          <li><strong>AppID is globally unique</strong> across all sectors</li>
+          <li><strong>One file per page</strong> — files are never shared across pages</li>
+        </ul>
+        <div style="margin-top:20px;">
+          <h3>Detection Approach</h3>
+          <div class="card" style="margin-bottom:12px;">
+            <h4>Step 1 — Regex Pattern Match</h4>
+            <p>Define AppID pattern once. Scan all extracted text from each file type for candidates.</p>
+          </div>
+          <div class="card amber">
+            <h4>Step 2 — Registry Confirmation</h4>
+            <p>Cross-reference candidates against master AppID registry. Eliminates false positives from pattern-similar strings.</p>
+          </div>
+        </div>
+      </div>
+      <div>
+        <h3>Parser per File Type</h3>
+        <table class="tbl">
+          <thead><tr><th>Format</th><th>Library</th><th>AppID Location</th></tr></thead>
+          <tbody>
+            <tr><td><span class="tag">Excel</span></td><td>openpyxl / pandas</td><td>Cells, all sheets</td></tr>
+            <tr><td><span class="tag amber">PDF</span></td><td>pymupdf (fitz)</td><td>Text blocks, tables</td></tr>
+            <tr><td><span class="tag purple">PPTX</span></td><td>python-pptx</td><td>Slides, notes, tables</td></tr>
+            <tr><td><span class="tag purple">PPT</span></td><td>python-pptx</td><td>Fallback: title + notes</td></tr>
+            <tr><td><span class="tag red">Image</span></td><td>pytesseract / Vision</td><td>OCR → text scan</td></tr>
+          </tbody>
+        </table>
+        <div style="margin-top:16px;" class="callout amber">
+          <strong>Images:</strong> Set confidence threshold. Below threshold → discard, flag for manual review. OCR confidence stored on the edge as <code style="color:var(--accent3)">metadata.confidence</code>.
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- ── SLIDE 5: GRAPH MODEL ── -->
+  <div class="slide" id="slide-5">
+    <div class="label">04 — Data Model</div>
+    <div class="section-title">
+      <div class="num">04</div>
+      <h2>Graph Node Model</h2>
+    </div>
+    <div class="grid-2" style="flex:1; gap:32px;">
+      <div>
+        <h3>Global Nodes (Singletons)</h3>
+        <div class="code"><span class="k">apps</span>       { <span class="n">appId</span>, <span class="v">firstSeenAt</span>, <span class="v">firstSeenSector</span> }
+<span class="k">rowtypes</span>   { <span class="n">canonicalType</span>, <span class="v">rawVariants[]</span>, <span class="v">sectors[]</span> }</div>
+        <div style="margin-top:8px;" class="callout">
+          Global nodes are <strong>upserted</strong>. AppID is looked up or created — never duplicated. Sector context lives on edges, not the App node.
+        </div>
+        <div style="margin-top:20px;">
+          <h3>Scoped Nodes (per ingestion)</h3>
+          <div class="code"><span class="k">sectors</span>    { <span class="n">sectorId</span>, <span class="v">name</span> }
+<span class="k">pages</span>      { <span class="n">pageId</span>, <span class="v">sectorId</span>, <span class="v">date</span>, <span class="v">url</span>, <span class="v">ingestedAt</span> }
+<span class="k">tables</span>     { <span class="n">tableId</span>, <span class="v">pageId</span> }
+<span class="k">rows</span>       { <span class="n">rowId</span>, <span class="v">tableId</span>, <span class="v">rawType</span>, <span class="v">canonicalType</span>,
+             <span class="v">typeSuffix</span>, <span class="v">embedding</span> }
+<span class="k">files</span>      { <span class="n">fileId</span>, <span class="v">filename</span>, <span class="v">pageId</span>, <span class="v">fileType</span>,
+             <span class="v">parseStatus</span> }
+<span class="k">paragraphs</span> { <span class="n">paragraphId</span>, <span class="v">pageId</span>, <span class="v">classification</span>,
+             <span class="v">text</span>, <span class="v">embedding</span> }</div>
+        </div>
+      </div>
+      <div>
+        <h3>Complete Relationship Map</h3>
+        <div class="rel-row" style="margin-bottom:14px;">
+          <div class="node-box page">Page</div>
+          <div class="rel-arrow">── <div class="rel-label">HAS_TABLE</div> ──▶</div>
+          <div class="node-box row">Table</div>
+        </div>
+        <div class="rel-row" style="margin-bottom:14px;">
+          <div class="node-box page">Page</div>
+          <div class="rel-arrow">── <div class="rel-label">HAS_PARAGRAPH</div> ──▶</div>
+          <div class="node-box row">Paragraph</div>
+        </div>
+        <div class="rel-row" style="margin-bottom:14px;">
+          <div class="node-box row">Table</div>
+          <div class="rel-arrow">── <div class="rel-label">HAS_ROW</div> ──▶</div>
+          <div class="node-box row">Row</div>
+        </div>
+        <div class="rel-row" style="margin-bottom:14px;">
+          <div class="node-box row">Row</div>
+          <div class="rel-arrow">── <div class="rel-label">HAS_ROWTYPE</div> ──▶</div>
+          <div class="node-box row">RowType</div>
+        </div>
+        <div class="rel-row" style="margin-bottom:14px;">
+          <div class="node-box row">Row</div>
+          <div class="rel-arrow">── <div class="rel-label">REFERENCES_FILE</div> ──▶</div>
+          <div class="node-box file">File</div>
+        </div>
+        <div class="rel-row" style="margin-bottom:14px;">
+          <div class="node-box file">File</div>
+          <div class="rel-arrow">── <div class="rel-label">LISTS_APP</div> ──▶</div>
+          <div class="node-box app">App</div>
+        </div>
+        <div class="callout" style="margin-top:8px;">
+          <strong>App</strong> has exactly one inbound relationship type: <code style="color:var(--accent)">LISTS_APP</code> from File. Clean, auditable, no ambiguity.
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- ── SLIDE 6: EDGE SCHEMA ── -->
+  <div class="slide" id="slide-6">
+    <div class="label">05 — Edge Design</div>
+    <div class="section-title">
+      <div class="num">05</div>
+      <h2>Explicit Edge Collection</h2>
+    </div>
+    <div class="grid-2" style="flex:1; gap:32px;">
+      <div>
+        <h3>Edge Document Shape</h3>
+        <div class="code">{
+  <span class="k">"_id"</span>: <span class="s">"edge_uuid"</span>,
+  <span class="k">"from"</span>: { <span class="n">"id"</span>: <span class="s">"file_abc"</span>, <span class="n">"type"</span>: <span class="s">"File"</span> },
+  <span class="k">"to"</span>:   { <span class="n">"id"</span>: <span class="s">"APP_XYZ001"</span>, <span class="n">"type"</span>: <span class="s">"App"</span> },
+  <span class="k">"relationship"</span>: <span class="s">"LISTS_APP"</span>,
+
+  <span class="k">"context"</span>: {
+    <span class="n">"sector"</span>:   <span class="s">"SECTOR_A"</span>,
+    <span class="n">"pageId"</span>:   <span class="s">"page_001"</span>,
+    <span class="n">"pageDate"</span>: <span class="s">"2024-03-15"</span>
+  },
+
+  <span class="k">"metadata"</span>: {
+    <span class="n">"sourceFile"</span>:  <span class="s">"impact_list.xlsx"</span>,
+    <span class="n">"fileType"</span>:    <span class="s">"excel"</span>,
+    <span class="n">"confidence"</span>:  <span class="v">1.0</span>,
+    <span class="n">"extractedBy"</span>: <span class="s">"excel_parser"</span>
+  },
+
+  <span class="k">"createdAt"</span>: <span class="s">"2025-05-20T00:00:00Z"</span>
+}</div>
+      </div>
+      <div>
+        <h3>Why Explicit Edges</h3>
+        <ul class="styled" style="margin-bottom:20px;">
+          <li><strong>Denormalized context</strong> — sector, pageId, pageDate on every edge. No joins needed for filtered traversal.</li>
+          <li><strong>Multi-hop queries</strong> — App → File → Row → Page → Sector in one aggregation pipeline.</li>
+          <li><strong>Provenance</strong> — every AppID association traceable to parser and source file.</li>
+          <li><strong>ADK agent tools</strong> — scoped queries become simple <code style="color:var(--accent)">edges.find()</code> calls.</li>
+        </ul>
+        <h3>MongoDB Indexes</h3>
+        <div class="code"><span class="c">// Outbound / inbound traversal</span>
+{ <span class="n">"from.id"</span>: 1, <span class="k">"relationship"</span>: 1 }
+{ <span class="n">"to.id"</span>: 1, <span class="k">"relationship"</span>: 1 }
+
+<span class="c">// Sector-scoped + recency</span>
+{ <span class="n">"context.sector"</span>: 1, <span class="k">"relationship"</span>: 1,
+  <span class="n">"context.pageDate"</span>: <span class="v">-1</span> }
+
+<span class="c">// App lookup newest-first</span>
+{ <span class="n">"to.id"</span>: 1, <span class="n">"context.sector"</span>: 1,
+  <span class="n">"context.pageDate"</span>: <span class="v">-1</span> }</div>
+      </div>
+    </div>
+  </div>
+
+  <!-- ── SLIDE 7: INGESTION PIPELINE ── -->
+  <div class="slide" id="slide-7">
+    <div class="label">06 — Pipeline</div>
+    <div class="section-title">
+      <div class="num">06</div>
+      <h2>Ingestion Pipeline</h2>
+    </div>
+    <div style="margin-bottom:24px;">
+      <div class="flow">
+        <div class="flow-step">
+          <div class="step-num">PHASE 1</div>
+          <div class="step-title">Extract</div>
+          <div class="step-sub">HTML parse<br>File parse<br>OCR</div>
+        </div>
+        <div class="flow-step">
+          <div class="step-num">PHASE 2</div>
+          <div class="step-title">Normalize</div>
+          <div class="step-sub">RowType cluster<br>AppID detect<br>Para classify</div>
+        </div>
+        <div class="flow-step highlight">
+          <div class="step-num">PHASE 3</div>
+          <div class="step-title">Graph Build</div>
+          <div class="step-sub">Insert nodes<br>Insert edges<br>Upsert globals</div>
+        </div>
+        <div class="flow-step">
+          <div class="step-num">PHASE 4</div>
+          <div class="step-title">Embed</div>
+          <div class="step-sub">Rows + Paras<br>Atlas Vector<br>Tag pageDate</div>
+        </div>
+        <div class="flow-step">
+          <div class="step-num">PHASE 5</div>
+          <div class="step-title">Retrieve</div>
+          <div class="step-sub">LightRAG dual<br>Recency rank<br>ADK tools</div>
+        </div>
+      </div>
+    </div>
+    <div class="grid-2" style="flex:1; gap:24px;">
+      <div>
+        <h3>Phase 3 — Strict Insert Order</h3>
+        <ul class="styled">
+          <li><strong>Step 1</strong> — Parse HTML → Page, Tables, Rows, Paragraphs, edges</li>
+          <li><strong>Step 2</strong> — Normalize RowTypes → update Rows, create RowType nodes</li>
+          <li><strong>Step 3</strong> — Detect file refs in rows → create File nodes (status: PENDING)</li>
+          <li><strong>Step 4</strong> — Parse each file → create App nodes (upsert), LISTS_APP edges</li>
+        </ul>
+      </div>
+      <div>
+        <h3>Failure Handling</h3>
+        <table class="tbl">
+          <thead><tr><th>Failure</th><th>File Status</th><th>Action</th></tr></thead>
+          <tbody>
+            <tr><td>Parse error</td><td><span class="tag red">FAILED</span></td><td>Log, flag for review</td></tr>
+            <tr><td>No AppIDs found</td><td><span class="tag amber">NO_APPS_FOUND</span></td><td>Log, keep File node</td></tr>
+            <tr><td>OCR low confidence</td><td><span class="tag amber">LOW_CONFIDENCE</span></td><td>Discard, flag</td></tr>
+            <tr><td>PPT mostly images</td><td><span class="tag purple">PARTIAL</span></td><td>Title + notes only</td></tr>
+          </tbody>
+        </table>
+      </div>
+    </div>
+  </div>
+
+  <!-- ── SLIDE 8: RETRIEVAL & RECENCY ── -->
+  <div class="slide" id="slide-8">
+    <div class="label">07 — Retrieval</div>
+    <div class="section-title">
+      <div class="num">07</div>
+      <h2>Retrieval Strategy & Recency</h2>
+    </div>
+    <div class="grid-2" style="flex:1; gap:32px;">
+      <div>
+        <h3>LightRAG — Why It Fits</h3>
+        <ul class="styled" style="margin-bottom:20px;">
+          <li><strong>MongoDB native</strong> backend support</li>
+          <li><strong>Dual-mode retrieval</strong> — vector similarity + graph traversal together</li>
+          <li><strong>Local mode</strong> — specific entity lookup (AppID, PageID, RowType)</li>
+          <li><strong>Global mode</strong> — community summaries across a sector</li>
+          <li><strong>Open source</strong>, self-hostable, fits your stack</li>
+        </ul>
+        <h3>Paragraph Classification</h3>
+        <table class="tbl">
+          <thead><tr><th>Type</th><th>Description</th><th>Graph</th></tr></thead>
+          <tbody>
+            <tr><td><span class="tag green">CONTEXTUAL</span></td><td>Annotates nearby table</td><td>Linked to PageID + RowType</td></tr>
+            <tr><td><span class="tag amber">STANDALONE</span></td><td>Meeting notes, commentary</td><td>PageID only, semantic search</td></tr>
+          </tbody>
+        </table>
+      </div>
+      <div>
+        <h3>Recency-Weighted Scoring</h3>
+        <div class="code"><span class="c">// Re-rank after vector retrieval</span>
+<span class="k">final_score</span> = semantic_score × recency_weight(pageDate)
+
+<span class="c">// Weight schedule (per sector)</span>
+<span class="k">current year</span>  → <span class="v">1.00</span>
+<span class="k">-1 year</span>       → <span class="v">0.85</span>
+<span class="k">-2 years</span>      → <span class="v">0.70</span>
+<span class="k">-3 years</span>      → <span class="v">0.55</span>
+<span class="k">floor</span>         → <span class="v">0.40</span>  <span class="c">(oldest pages not excluded)</span></div>
+        <div style="margin-top:16px;" class="callout">
+          <strong>Scope recency per sector.</strong> A 2021 page in Sector A is not comparable to a 2021 page in Sector B if they evolve at different rates. <code style="color:var(--accent)">pageDate</code> is indexed DESC on the edge collection for zero-cost sorting.
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- ── SLIDE 9: ADK AGENT ── -->
+  <div class="slide" id="slide-9">
+    <div class="label">08 — Agent Layer</div>
+    <div class="section-title">
+      <div class="num">08</div>
+      <h2>Google ADK Agent Tools</h2>
+    </div>
+    <div class="grid-2" style="flex:1; gap:32px;">
+      <div>
+        <h3>Tool Signatures</h3>
+        <div class="card" style="margin-bottom:12px;">
+          <h4>search_graph(sector, query, filters?)</h4>
+          <p>Atlas Vector Search + graph traversal. Applies recency re-ranking. Sector always resolved first.</p>
+        </div>
+        <div class="card amber" style="margin-bottom:12px;">
+          <h4>get_app_pages(appId, sector?)</h4>
+          <p>Which pages reference this app, newest first? Single edge query with DESC sort.</p>
+        </div>
+        <div class="card purple" style="margin-bottom:12px;">
+          <h4>get_page_context(pageId)</h4>
+          <p>Page metadata + all rows, paragraphs, and file statuses.</p>
+        </div>
+        <div class="card green">
+          <h4>get_rowtype_summary(canonicalType, sector?)</h4>
+          <p>All apps affected by this row type. Two-hop: RowType → Rows → Files → Apps.</p>
+        </div>
+      </div>
+      <div>
+        <h3>Query Pattern — get_app_pages</h3>
+        <div class="code"><span class="c">// "Which pages reference APP_XYZ, newest first?"</span>
+edges.<span class="k">find</span>({
+  <span class="n">"to.id"</span>: <span class="s">"APP_XYZ001"</span>,
+  <span class="n">"relationship"</span>: <span class="s">"LISTS_APP"</span>,
+  <span class="n">"context.sector"</span>: <span class="s">"SECTOR_A"</span>
+}).<span class="k">sort</span>({ <span class="n">"context.pageDate"</span>: <span class="v">-1</span> })</div>
+        <div style="margin-top:16px;">
+          <h3>Query Pattern — get_rowtype_summary</h3>
+          <div class="code"><span class="c">// Step 1: rows of this type</span>
+edges.<span class="k">find</span>({ <span class="n">"to.id"</span>: canonicalType,
+  <span class="n">"relationship"</span>: <span class="s">"HAS_ROWTYPE"</span> })
+→ collect rowIds
+
+<span class="c">// Step 2: files from those rows</span>
+edges.<span class="k">find</span>({ <span class="n">"from.id"</span>: { <span class="k">$in</span>: rowIds },
+  <span class="n">"relationship"</span>: <span class="s">"REFERENCES_FILE"</span> })
+→ collect fileIds
+
+<span class="c">// Step 3: apps from those files</span>
+edges.<span class="k">find</span>({ <span class="n">"from.id"</span>: { <span class="k">$in</span>: fileIds },
+  <span class="n">"relationship"</span>: <span class="s">"LISTS_APP"</span> })</div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- ── SLIDE 10: RISKS ── -->
+  <div class="slide" id="slide-10">
+    <div class="label">09 — Risk Register</div>
+    <div class="section-title">
+      <div class="num">09</div>
+      <h2>Key Risks & Mitigations</h2>
+    </div>
+    <div style="flex:1;">
+      <table class="tbl">
+        <thead>
+          <tr>
+            <th>Risk</th>
+            <th>Impact</th>
+            <th>Mitigation</th>
+          </tr>
+        </thead>
+        <tbody>
+          <tr>
+            <td>AppID not found in file</td>
+            <td><span class="tag amber">Medium</span></td>
+            <td>Log as <code>unresolved_file</code>, flag for manual review. File node persists with FAILED status.</td>
+          </tr>
+          <tr>
+            <td>OCR quality on images</td>
+            <td><span class="tag red">High</span></td>
+            <td>Confidence threshold gate. Below threshold → discard extraction, flag file. Confidence stored on edge metadata.</td>
+          </tr>
+          <tr>
+            <td>PPT files with mostly images</td>
+            <td><span class="tag amber">Medium</span></td>
+            <td>Fallback to slide title + speaker notes only. Mark parse status as PARTIAL.</td>
+          </tr>
+          <tr>
+            <td>RowType clustering drift over time</td>
+            <td><span class="tag amber">Medium</span></td>
+            <td>Versioned canonical type registry. Re-run normalizer when new variants appear. Never auto-merge without review.</td>
+          </tr>
+          <tr>
+            <td>Same AppID, different sectors</td>
+            <td><span class="tag green">Low</span></td>
+            <td>AppID is globally unique — confirmed. App node is singleton. Sector lives on edge context only.</td>
+          </tr>
+          <tr>
+            <td>Multi-hop traversal performance</td>
+            <td><span class="tag amber">Medium</span></td>
+            <td>Compound indexes on edges collection with sector + pageDate. Derived <code>APPEARS_IN_SECTOR</code> edge computed post-ingestion for shortcut queries.</td>
+          </tr>
+        </tbody>
+      </table>
+      <div style="margin-top:20px;" class="callout amber">
+        <strong>Derived edge:</strong> <code>App ──[APPEARS_IN_SECTOR]──▶ Sector</code> computed after full sector ingestion. Enables fast "all apps in Sector X" without full traversal.
+      </div>
+    </div>
+  </div>
+
+  <!-- ── SLIDE 11: NEXT STEPS ── -->
+  <div class="slide" id="slide-11">
+    <div class="label">10 — Next Steps</div>
+    <div class="section-title">
+      <div class="num">10</div>
+      <h2>Implementation Workstreams</h2>
+    </div>
+    <div class="grid-3" style="flex:1; align-content:start; gap:20px;">
+      <div>
+        <div class="card" style="height:100%;">
+          <h4 style="color:var(--accent); font-size:11px; letter-spacing:2px; text-transform:uppercase; margin-bottom:14px;">Workstream 1</h4>
+          <h3 style="color:var(--text); font-size:18px; margin-bottom:12px;">Extraction Layer</h3>
+          <ul class="styled">
+            <li>One parser per file type</li>
+            <li>Unified AppID detector output format</li>
+            <li>OCR confidence gating</li>
+            <li>Paragraph classifier</li>
+          </ul>
+        </div>
+      </div>
+      <div>
+        <div class="card amber" style="height:100%;">
+          <h4 style="color:var(--accent3); font-size:11px; letter-spacing:2px; text-transform:uppercase; margin-bottom:14px;">Workstream 2</h4>
+          <h3 style="color:var(--text); font-size:18px; margin-bottom:12px;">MongoDB Schema</h3>
+          <ul class="styled">
+            <li>Collections + indexes</li>
+            <li>Upsert rules for global nodes</li>
+            <li>Edge insert patterns</li>
+            <li>Atlas Vector Search setup</li>
+          </ul>
+        </div>
+      </div>
+      <div>
+        <div class="card green" style="height:100%;">
+          <h4 style="color:var(--green); font-size:11px; letter-spacing:2px; text-transform:uppercase; margin-bottom:14px;">Workstream 3</h4>
+          <h3 style="color:var(--text); font-size:18px; margin-bottom:12px;">ADK Agent Tools</h3>
+          <ul class="styled">
+            <li>Define 4–5 tool signatures</li>
+            <li>Edge query patterns per tool</li>
+            <li>Recency re-ranking logic</li>
+            <li>Sector resolution in agent context</li>
+          </ul>
+        </div>
+      </div>
+    </div>
+    <div style="margin-top:24px;" class="callout">
+      All three workstreams are <strong>independent</strong> — they share only the edge schema and node ID contracts defined in this document. Teams can work in parallel.
+    </div>
+  </div>
+
+</div><!-- /deck -->
+
+<!-- ── CONTROLS ── -->
+<div class="nav">
+  <button onclick="prev()">← PREV</button>
+  <div class="dots" id="dots"></div>
+  <button onclick="next()">NEXT →</button>
+</div>
+
+<div class="slide-num" id="slideNum">01 / 11</div>
+
+<script>
+  const slides = document.querySelectorAll('.slide');
+  const dotsEl = document.getElementById('dots');
+  let current = 0;
+
+  // Build dots
+  slides.forEach((_, i) => {
+    const d = document.createElement('div');
+    d.className = 'dot' + (i === 0 ? ' active' : '');
+    d.onclick = () => goTo(i);
+    dotsEl.appendChild(d);
+  });
+
+  function goTo(n) {
+    slides[current].classList.remove('active');
+    slides[current].classList.add('out');
+    setTimeout(() => slides[current].classList.remove('out'), 500);
+    current = (n + slides.length) % slides.length;
+    slides[current].classList.add('active');
+    document.querySelectorAll('.dot').forEach((d, i) => d.classList.toggle('active', i === current));
+    document.getElementById('slideNum').textContent =
+      String(current + 1).padStart(2, '0') + ' / ' + String(slides.length).padStart(2, '0');
+  }
+
+  function next() { goTo(current + 1); }
+  function prev() { goTo(current - 1); }
+
+  document.addEventListener('keydown', e => {
+    if (e.key === 'ArrowRight' || e.key === 'ArrowDown') next();
+    if (e.key === 'ArrowLeft' || e.key === 'ArrowUp') prev();
+  });
+</script>
+
+</body>
+</html>
